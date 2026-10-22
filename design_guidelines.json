@@ -1,0 +1,240 @@
+{
+  "app_name": "RF Photos",
+  "personality": "Fusion: 1 iOS-Native Clean with 4 Tactile/Playful surfaces (claymorphism) and 6 Glass/Luxe toolbars",
+  "personality_one_liner": "A premium, intelligent offline photo gallery combining clean iOS-native structure with warm claymorphic surfaces, selective frosted glass, and cheerful pastel gradients anchored by RF Orange.",
+  "color": {
+    "light": {
+      "surface": "#F5F6F8",
+      "onSurface": "#1C1C1E",
+      "surfaceSecondary": "#FFFFFF",
+      "onSurfaceSecondary": "#1C1C1E",
+      "surfaceTertiary": "#F0F0F0",
+      "onSurfaceTertiary": "#1C1C1E",
+      "surfaceInverse": "#1C1C1E",
+      "onSurfaceInverse": "#FFFFFF",
+      "brand": "#FF5E00",
+      "onBrand": "#FFFFFF",
+      "brandPrimary": "#FF5E00",
+      "onBrandPrimary": "#FFFFFF",
+      "brandSecondary": "#FF6600",
+      "onBrandSecondary": "#FFFFFF",
+      "brandTertiary": "#FFF0E6",
+      "onBrandTertiary": "#FF5E00",
+      "muted": "#8E8E93",
+      "success": "#34C759",
+      "onSuccess": "#FFFFFF",
+      "warning": "#FF9500",
+      "onWarning": "#FFFFFF",
+      "error": "#FF3B30",
+      "onError": "#FFFFFF",
+      "info": "#B0E0E6",
+      "onInfo": "#1C1C1E",
+      "border": "#E5E5EA",
+      "borderStrong": "#C7C7CC",
+      "divider": "#E5E5EA",
+      "pastelLavender": "#E6E6FA",
+      "pastelPowderBlue": "#B0E0E6",
+      "pastelBlushPink": "#FFB6C1",
+      "pastelMint": "#98FF98",
+      "pastelPeach": "#FFE5B4",
+      "pastelCream": "#FFFDD0"
+    },
+    "dark": {
+      "surface": "#121212",
+      "onSurface": "#FFFFFF",
+      "surfaceSecondary": "#1C1C1E",
+      "onSurfaceSecondary": "#FFFFFF",
+      "surfaceTertiary": "#2C2C2E",
+      "onSurfaceTertiary": "#FFFFFF",
+      "surfaceInverse": "#F5F6F8",
+      "onSurfaceInverse": "#1C1C1E",
+      "brand": "#FF5E00",
+      "onBrand": "#FFFFFF",
+      "brandPrimary": "#FF5E00",
+      "onBrandPrimary": "#FFFFFF",
+      "brandSecondary": "#FF6600",
+      "onBrandSecondary": "#FFFFFF",
+      "brandTertiary": "#331600",
+      "onBrandTertiary": "#FF8A3D",
+      "muted": "#8E8E93",
+      "success": "#30D158",
+      "onSuccess": "#FFFFFF",
+      "warning": "#FF9F0A",
+      "onWarning": "#FFFFFF",
+      "error": "#FF453A",
+      "onError": "#FFFFFF",
+      "info": "#89C4F4",
+      "onInfo": "#121212",
+      "border": "#38383A",
+      "borderStrong": "#48484A",
+      "divider": "#38383A",
+      "pastelLavender": "#4D4D6B",
+      "pastelPowderBlue": "#3A6273",
+      "pastelBlushPink": "#733B45",
+      "pastelMint": "#316631",
+      "pastelPeach": "#735C3A",
+      "pastelCream": "#66644C"
+    }
+  },
+  "typography": {
+    "displayFontFamily": "System",
+    "textFontFamily": "System",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Handle spacing correctly dont have extra spaces where its not required, handle padding and margin corectly and subtle for buttons and components. Grids should use minimal gap (2-4px) for photos, but generous spacing (16-24px) for cards and sections.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": 2,
+  "navigation": "bottom_tabs",
+  "icon_set": "Ionicons",
+  "glassmorphism": {
+    "enabled": true,
+    "do's": [
+      "Apply to search bars, navigation tabs, bottom toolbars, and floating action buttons.",
+      "Use for bottom sheet drag handles and headers.",
+      "Ensure heavy tint underlying the blur for perfect text contrast."
+    ],
+    "dont's": [
+      "Never cover actual photos or primary media content with excessive glass.",
+      "Do not use glass for simple list rows or cards."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Photos",
+      "purpose": "Primary grid timeline of all user media.",
+      "states": {
+        "loading": "Skeleton grid with subtle shimmer.",
+        "empty": "Illustration of a camera with 'No photos yet. Start capturing your memories.'",
+        "error": "Error reading local storage. Retry button."
+      },
+      "layout": "Sticky glass header (date/context). Edge-to-edge photo grid with 2px gap. Fast-scrolling timeline. Use pinch-to-zoom concepts if possible. Bottom tab bar with frosted glass."
+    },
+    {
+      "name": "Albums",
+      "purpose": "Organized collections, favorites, and smart memories.",
+      "states": {
+        "loading": "Skeleton of large cards.",
+        "empty": "Illustration of an empty folder. 'Create your first album.'",
+        "error": "Failed to load albums. Retry."
+      },
+      "layout": "Masonry or grid of large rounded white cards (surfaceSecondary, radius lg) with subtle shadows. Soft pastel gradient backgrounds on 'Smart Collections' or 'Memories' cards to distinguish them."
+    },
+    {
+      "name": "Create",
+      "purpose": "Collage and creation studio hub.",
+      "states": {
+        "loading": "Centered spinner.",
+        "empty": "N/A - tool index.",
+        "error": "N/A"
+      },
+      "layout": "Large hero banner (pastel gradient background) for 'Start a Collage'. Grid of tools (Collage, Scanner, Annotations) inside rounded cards. Each tool card uses a pastel accent icon."
+    },
+    {
+      "name": "Search",
+      "purpose": "Local visual search and smart metadata lookup.",
+      "states": {
+        "loading": "Spinner below search bar.",
+        "empty": "Recent searches and suggested categories (e.g., 'Screenshots', 'Selfies').",
+        "error": "Search index error."
+      },
+      "layout": "Prominent glassmorphic search bar at top. Pinned filter chips below it. Grid of search results below."
+    },
+    {
+      "name": "Library",
+      "purpose": "Secondary tools: Vault, Storage Guardian, Settings, Action Agent.",
+      "states": {
+        "loading": "Spinner.",
+        "empty": "N/A.",
+        "error": "N/A."
+      },
+      "layout": "List layout with generous spacing. Each row has a brandTertiary tinted icon container (radius md). Vault entry stands out with a distinct lock icon and subtle gradient."
+    },
+    {
+      "name": "Vault",
+      "purpose": "Secure PIN/Biometric locked photo area.",
+      "states": {
+        "loading": "Validating...",
+        "empty": "Abstract secure lock illustration. 'Your private photos go here.'",
+        "error": "Authentication failed."
+      },
+      "layout": "PIN entry screen with dark, premium aesthetic. Once unlocked, shows a secure grid layout similar to Home but with a distinct surfaceTertiary background to signify privacy."
+    },
+    {
+      "name": "PhotoEditor",
+      "purpose": "Image manipulation, crop, filters, and adjustments.",
+      "states": {
+        "loading": "Loading high-res image.",
+        "empty": "N/A",
+        "error": "Failed to load image for editing."
+      },
+      "layout": "Full screen dark mode view (surface: #000). Image centered. Segmented controls at bottom for (Crop, Adjust, Filters). Sliders and carousel selection in a bottom sheet / bottom toolbar."
+    }
+  ],
+  "images": {
+    "empty_camera": {
+      "url": "https://images.unsplash.com/photo-1516961642265-531546e84af2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1Mjh8MHwxfHNlYXJjaHwxfHxtaW5pbWFsaXN0JTIwY2FtZXJhJTIwcGhvdG9ncmFwaHl8ZW58MHx8fHwxNzkyNjQ0MDc5fDA&ixlib=rb-4.1.0&q=85",
+      "dark": "https://images.pexels.com/photos/19685615/pexels-photo-19685615.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Minimalist camera on a clean surface"
+    },
+    "vault_lock": {
+      "url": "https://images.unsplash.com/photo-1790324676762-17c0a881e550?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODF8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMHNlY3VyZSUyMHZhdWx0JTIwbG9ja3xlbnwwfHx8fDE3OTI2NDQwNzl8MA&ixlib=rb-4.1.0&q=85",
+      "dark": "https://images.pexels.com/photos/5192037/pexels-photo-5192037.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Abstract secure lock symbolizing private vault"
+    },
+    "pastel_gradient_bg": {
+      "url": "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2OTV8MHwxfHNlYXJjaHwxfHxzb2Z0JTIwcGFzdGVsJTIwZ3JhZGllbnRzfGVufDB8fHx8MTc5MjY0NDA3OXww&ixlib=rb-4.1.0&q=85",
+      "dark": "https://images.pexels.com/photos/7130544/pexels-photo-7130544.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Soft pastel gradient background for creative sections"
+    }
+  },
+  "haptics": {
+    "tab_press": "light",
+    "photo_select": "medium",
+    "slider_tick": "selection",
+    "action_success": "success",
+    "vault_error": "error",
+    "bottom_sheet_snap": "light"
+  },
+  "instructions_to_main_agent": [
+    "Strictly apply rounded white cards (surfaceSecondary) with lg/xl (20-24dp) border radius and subtle shadows (tier 2) for content containers to achieve the 'claymorphism' feel.",
+    "Implement light, dark, and system themes correctly. Dark mode should use the provided #121212 base and #1C1C1E surfaces, NOT inverted light colors.",
+    "Use pastel gradients subtly on 'Memories' or 'Create' banners, but ensure text overlay has a dark gradient scrim if necessary for readability.",
+    "Limit glassmorphism strictly to toolbars, search bars, bottom sheets, and the bottom tab bar. Do NOT cover actual photos with blur.",
+    "Use System fonts exclusively. Do not import Google fonts.",
+    "The primary brand color is RF Orange (#FF5E00). Use it as the dominant active state and primary CTA color.",
+    "From research: Mobile photo editors rely heavily on bottom-anchored segmented controls for categories (Adjust/Filter) and a secondary horizontal scroll area for sliders or options. Keep the top area minimal to maximize canvas space.",
+    "Ensure photo grid has minimal gaps (e.g., 2px) for density, while Albums and Settings use generous margins."
+  ]
+}
