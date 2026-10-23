@@ -1,6 +1,8 @@
 // Local media engine: Android MediaStore (via expo-media-library) + app-imported media.
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import * as ML from "expo-media-library/legacy";
+import { isRunningInExpoGo } from "expo";
+import * as FS from "expo-file-system/legacy";
 import { useMemo, useSyncExternalStore } from "react";
 import { getState, MediaItem, setState, uid, useStore } from "@/src/store";
 
@@ -9,7 +11,7 @@ export const deviceLibraryAvailable = Platform.OS !== "web";
 type LibState = {
   items: MediaItem[];
   albums: ML.Album[];
-  status: "idle" | "loading" | "ready" | "denied" | "unavailable" | "error";
+  status: "idle" | "loading" | "ready" | "denied" | "restricted" | "unavailable" | "error";
   permission: "granted" | "limited" | "denied" | "undetermined";
   canAskAgain: boolean;
   total: number;
@@ -51,25 +53,65 @@ function toItem(a: ML.Asset): MediaItem {
   };
 }
 
+// Expo Go on Android cannot be granted full MediaStore access (Google Play policy: the Expo Go manifest no longer
+// declares READ_MEDIA_IMAGES/VIDEO). Permission calls there reject or return denied → we detect and explain it.
+export const inExpoGo = isRunningInExpoGo();
+export const expoGoAndroid = Platform.OS === "android" && inExpoGo;
+
+function permState(p: ML.PermissionResponse): LibState["permission"] {
+  if (p.granted) return p.accessPrivileges === "limited" ? "limited" : "granted";
+  return p.status === "undetermined" ? "undetermined" : "denied";
+}
+
 export async function checkPermission() {
   if (!deviceLibraryAvailable) {
     set({ status: "unavailable" });
     return false;
   }
-  const p = await ML.getPermissionsAsync(false, ["photo", "video"]);
-  const perm = p.granted ? (p.accessPrivileges === "limited" ? "limited" : "granted") : p.status === "undetermined" ? "undetermined" : "denied";
-  set({ permission: perm, canAskAgain: p.canAskAgain });
-  return p.granted;
+  try {
+    const p = await ML.getPermissionsAsync(false, ["photo", "video"]);
+    set({ permission: permState(p), canAskAgain: p.canAskAgain });
+    return p.granted;
+  } catch (e: any) {
+    set({ permission: "denied", canAskAgain: false, status: "restricted", error: String(e?.message || e) });
+    return false;
+  }
 }
 
-export async function requestPermission() {
-  if (!deviceLibraryAvailable) return false;
-  const p = await ML.requestPermissionsAsync(false, ["photo", "video"]);
-  const perm = p.granted ? (p.accessPrivileges === "limited" ? "limited" : "granted") : "denied";
-  set({ permission: perm, canAskAgain: p.canAskAgain });
-  if (p.granted) await indexLibrary();
-  else set({ status: "denied" });
-  return p.granted;
+let requesting = false;
+export async function requestPermission(): Promise<LibState["permission"]> {
+  if (!deviceLibraryAvailable || requesting) return lib.permission;
+  requesting = true;
+  try {
+    // Never re-prompt when the OS will not show a dialog; caller opens Settings instead.
+    if (lib.permission === "denied" && !lib.canAskAgain) return "denied";
+    const p = await ML.requestPermissionsAsync(false, ["photo", "video"]);
+    const perm = permState(p);
+    set({ permission: perm, canAskAgain: p.canAskAgain, error: undefined });
+    if (p.granted) {
+      indexing = false;
+      await indexLibrary();
+    } else set({ status: "denied" });
+    return perm;
+  } catch (e: any) {
+    set({ permission: "denied", canAskAgain: false, status: "restricted", error: String(e?.message || e) });
+    return "denied";
+  } finally {
+    requesting = false;
+  }
+}
+
+// Re-check when returning from system Settings so a newly granted permission loads the gallery automatically.
+let appStateSub: { remove: () => void } | null = null;
+export function watchAppState() {
+  if (!deviceLibraryAvailable || appStateSub) return;
+  appStateSub = AppState.addEventListener("change", async (s) => {
+    if (s !== "active") return;
+    const before = lib.permission;
+    const granted = await checkPermission();
+    if (granted && (before !== "granted" && before !== "limited" || lib.status !== "ready")) indexLibrary();
+    else if (granted && before === "limited") indexLibrary();
+  });
 }
 
 let indexing = false;
@@ -82,14 +124,17 @@ export async function indexLibrary() {
   if (indexing) return;
   const ok = await checkPermission();
   if (!ok) {
-    set({ status: "denied" });
+    if (lib.status !== "restricted") set({ status: lib.permission === "undetermined" ? "idle" : "denied" });
     return;
   }
   indexing = true;
   set({ status: lib.items.length ? lib.status : "loading", error: undefined });
   try {
-    const albums = await ML.getAlbumsAsync({ includeSmartAlbums: true });
-    set({ albums });
+    try {
+      set({ albums: await ML.getAlbumsAsync({ includeSmartAlbums: true }) });
+    } catch {
+      // albums are optional; with limited access some devices refuse album queries
+    }
     let after: string | undefined;
     const all: MediaItem[] = [];
     for (let page = 0; page < 200; page++) {
@@ -100,11 +145,11 @@ export async function indexLibrary() {
         sortBy: [[ML.SortBy.creationTime, false]],
       });
       res.assets.forEach((a) => all.push(toItem(a)));
-      set({ items: [...all], total: res.totalCount, status: "ready" });
+      if (page === 0 || page % 4 === 0 || !res.hasNextPage) set({ items: [...all], total: res.totalCount, status: "ready" });
       if (!res.hasNextPage) break;
       after = res.endCursor;
     }
-    set({ indexedAt: Date.now(), status: "ready" });
+    set({ items: [...all], indexedAt: Date.now(), status: "ready" });
   } catch (e: any) {
     set({ status: "error", error: String(e?.message || e) });
   } finally {
@@ -156,7 +201,26 @@ export const isScreenshot = (m: MediaItem) => /screenshot|screen_shot|scrn/i.tes
 export const isScreenRecording = (m: MediaItem) => m.mediaType === "video" && /screen.?record|scr.?rec/i.test(m.filename);
 
 // Save a local file (file:// or data:) into the device library ("RF Photos" album) or, on web, into imported media.
+export const libraryWritable = () => deviceLibraryAvailable && (lib.permission === "granted" || lib.permission === "limited");
+
+// Without MediaStore access (permission denied, or Expo Go on Android) files are kept in RF Photos' own storage.
+async function keepInAppStorage(localUri: string, filename: string): Promise<string> {
+  const dir = FS.documentDirectory + "imported/";
+  const info = await FS.getInfoAsync(dir);
+  if (!info.exists) await FS.makeDirectoryAsync(dir, { intermediates: true });
+  const ext = (filename.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+  const dest = `${dir}${uid()}.${ext}`;
+  await FS.copyAsync({ from: localUri, to: dest });
+  return dest;
+}
+
 export async function saveToLibrary(localUri: string, filename: string, mediaType: "photo" | "video" = "photo", width = 0, height = 0): Promise<MediaItem> {
+  if (deviceLibraryAvailable && !libraryWritable()) {
+    const uri = await keepInAppStorage(localUri, filename);
+    const item: MediaItem = { id: "imp_" + uid(), uri, filename, mediaType, width, height, creationTime: Date.now(), modificationTime: Date.now(), duration: 0, source: "imported" };
+    setState((s) => ({ imported: [item, ...s.imported] }));
+    return item;
+  }
   if (deviceLibraryAvailable) {
     const asset = await ML.createAssetAsync(localUri);
     try {
@@ -184,7 +248,10 @@ export async function deleteMedia(items: MediaItem[]): Promise<boolean> {
     const gone = new Set(dev.map((d) => d.id));
     set({ items: lib.items.filter((i) => !gone.has(i.id)) });
   }
-  if (imp.size) setState((s) => ({ imported: s.imported.filter((i) => !imp.has(i.id)) }));
+  if (imp.size) {
+    if (deviceLibraryAvailable) for (const i of items) if (imp.has(i.id) && i.uri.startsWith(FS.documentDirectory || "~")) await FS.deleteAsync(i.uri, { idempotent: true });
+    setState((s) => ({ imported: s.imported.filter((i) => !imp.has(i.id)) }));
+  }
   return true;
 }
 
