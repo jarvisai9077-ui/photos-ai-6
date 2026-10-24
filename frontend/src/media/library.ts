@@ -1,17 +1,24 @@
-// Local media engine: Android MediaStore (via expo-media-library) + app-imported media.
+// Local media engine: Android MediaStore / iOS Photos (via expo-media-library) + media imported into RF Photos' own storage.
 import { AppState, Platform } from "react-native";
 import * as ML from "expo-media-library/legacy";
 import { isRunningInExpoGo } from "expo";
 import * as FS from "expo-file-system/legacy";
+import * as VideoThumbnails from "expo-video-thumbnails";
 import { useMemo, useSyncExternalStore } from "react";
 import { getState, MediaItem, setState, uid, useStore } from "@/src/store";
+import { captureTime } from "./dates";
 
-export const deviceLibraryAvailable = Platform.OS !== "web";
+// Expo Go on Android cannot be granted full media access (Google Play policy: its manifest no longer declares
+// READ_MEDIA_IMAGES / READ_MEDIA_VIDEO). There, RF Photos works through the system photo picker instead.
+export const inExpoGo = isRunningInExpoGo();
+export const expoGoAndroid = Platform.OS === "android" && inExpoGo;
+export const deviceLibraryAvailable = Platform.OS !== "web" && !expoGoAndroid;
 
+export type LibStatus = "idle" | "loading" | "ready" | "denied" | "expo-go" | "unavailable" | "error";
 type LibState = {
   items: MediaItem[];
   albums: ML.Album[];
-  status: "idle" | "loading" | "ready" | "denied" | "restricted" | "unavailable" | "error";
+  status: LibStatus;
   permission: "granted" | "limited" | "denied" | "undetermined";
   canAskAgain: boolean;
   total: number;
@@ -19,7 +26,14 @@ type LibState = {
   indexedAt?: number;
 };
 
-let lib: LibState = { items: [], albums: [], status: "idle", permission: "undetermined", canAskAgain: true, total: 0 };
+let lib: LibState = {
+  items: [],
+  albums: [],
+  status: Platform.OS === "web" ? "unavailable" : expoGoAndroid ? "expo-go" : "idle",
+  permission: "undetermined",
+  canAskAgain: true,
+  total: 0,
+};
 const listeners = new Set<() => void>();
 function set(p: Partial<LibState>) {
   lib = { ...lib, ...p };
@@ -41,10 +55,10 @@ function toItem(a: ML.Asset): MediaItem {
   return {
     id: a.id,
     uri: a.uri,
-    filename: a.filename,
+    filename: a.filename || "media",
     mediaType: a.mediaType === "video" ? "video" : "photo",
-    width: a.width,
-    height: a.height,
+    width: a.width || 0,
+    height: a.height || 0,
     creationTime: a.creationTime || a.modificationTime || 0,
     modificationTime: a.modificationTime || 0,
     duration: a.duration || 0,
@@ -53,27 +67,23 @@ function toItem(a: ML.Asset): MediaItem {
   };
 }
 
-// Expo Go on Android cannot be granted full MediaStore access (Google Play policy: the Expo Go manifest no longer
-// declares READ_MEDIA_IMAGES/VIDEO). Permission calls there reject or return denied → we detect and explain it.
-export const inExpoGo = isRunningInExpoGo();
-export const expoGoAndroid = Platform.OS === "android" && inExpoGo;
-
 function permState(p: ML.PermissionResponse): LibState["permission"] {
   if (p.granted) return p.accessPrivileges === "limited" ? "limited" : "granted";
   return p.status === "undetermined" ? "undetermined" : "denied";
 }
 
+const errMsg = (e: any) => String(e?.message || e || "Unknown error");
+
 export async function checkPermission() {
-  if (!deviceLibraryAvailable) {
-    set({ status: "unavailable" });
-    return false;
-  }
+  if (!deviceLibraryAvailable) return false;
   try {
+    // Android 13+: request photos + videos granularly (READ_MEDIA_IMAGES / READ_MEDIA_VIDEO);
+    // Android 12 and lower map this to READ_EXTERNAL_STORAGE automatically.
     const p = await ML.getPermissionsAsync(false, ["photo", "video"]);
     set({ permission: permState(p), canAskAgain: p.canAskAgain });
     return p.granted;
-  } catch (e: any) {
-    set({ permission: "denied", canAskAgain: false, status: "restricted", error: String(e?.message || e) });
+  } catch (e) {
+    set({ permission: "denied", canAskAgain: false, status: "error", error: errMsg(e) });
     return false;
   }
 }
@@ -83,25 +93,33 @@ export async function requestPermission(): Promise<LibState["permission"]> {
   if (!deviceLibraryAvailable || requesting) return lib.permission;
   requesting = true;
   try {
-    // Never re-prompt when the OS will not show a dialog; caller opens Settings instead.
-    if (lib.permission === "denied" && !lib.canAskAgain) return "denied";
+    if (lib.permission === "denied" && !lib.canAskAgain) return "denied"; // OS won't show a dialog; caller opens Settings
     const p = await ML.requestPermissionsAsync(false, ["photo", "video"]);
     const perm = permState(p);
     set({ permission: perm, canAskAgain: p.canAskAgain, error: undefined });
-    if (p.granted) {
-      indexing = false;
-      await indexLibrary();
-    } else set({ status: "denied" });
+    if (p.granted) await indexLibrary(true);
+    else set({ status: "denied" });
     return perm;
-  } catch (e: any) {
-    set({ permission: "denied", canAskAgain: false, status: "restricted", error: String(e?.message || e) });
+  } catch (e) {
+    set({ permission: "denied", canAskAgain: false, status: "error", error: errMsg(e) });
     return "denied";
   } finally {
     requesting = false;
   }
 }
 
-// Re-check when returning from system Settings so a newly granted permission loads the gallery automatically.
+// Limited access (Android 14+ "Select photos and videos" / iOS limited): let the user change the selection.
+export async function manageLimitedAccess() {
+  if (!deviceLibraryAvailable) return;
+  try {
+    await ML.presentPermissionsPickerAsync(["photo", "video"]);
+  } catch {
+    await requestPermission();
+  }
+  await indexLibrary(true);
+}
+
+// Re-check when returning from system Settings so a newly granted/revoked permission is picked up.
 let appStateSub: { remove: () => void } | null = null;
 export function watchAppState() {
   if (!deviceLibraryAvailable || appStateSub) return;
@@ -109,59 +127,78 @@ export function watchAppState() {
     if (s !== "active") return;
     const before = lib.permission;
     const granted = await checkPermission();
-    if (granted && (before !== "granted" && before !== "limited" || lib.status !== "ready")) indexLibrary();
-    else if (granted && before === "limited") indexLibrary();
+    if (granted && (before !== lib.permission || lib.status !== "ready")) indexLibrary(true);
+    else if (!granted && lib.items.length) set({ items: [], albums: [], total: 0, status: "denied" });
   });
 }
 
-let indexing = false;
-// Incremental, paginated indexing. First page is published immediately so the grid renders fast.
-export async function indexLibrary() {
-  if (!deviceLibraryAvailable) {
-    set({ status: "unavailable" });
-    return;
+let indexing: Promise<void> | null = null;
+let again = false;
+// Paginated indexing. The first page is published immediately so the grid appears at once; later pages are
+// published in large batches to keep re-renders low. Re-index requests during a run are coalesced.
+export function indexLibrary(force = false): Promise<void> {
+  if (!deviceLibraryAvailable) return Promise.resolve();
+  if (indexing) {
+    if (force) again = true;
+    return indexing;
   }
-  if (indexing) return;
+  indexing = runIndex().finally(() => {
+    indexing = null;
+    if (again) {
+      again = false;
+      indexLibrary();
+    }
+  });
+  return indexing;
+}
+
+async function runIndex() {
   const ok = await checkPermission();
   if (!ok) {
-    if (lib.status !== "restricted") set({ status: lib.permission === "undetermined" ? "idle" : "denied" });
+    set({ status: lib.permission === "undetermined" ? "idle" : lib.status === "error" ? "error" : "denied", items: [], albums: [], total: 0 });
     return;
   }
-  indexing = true;
-  set({ status: lib.items.length ? lib.status : "loading", error: undefined });
+  const hadItems = lib.items.length > 0;
+  if (!hadItems) set({ status: "loading", error: undefined });
   try {
-    try {
-      set({ albums: await ML.getAlbumsAsync({ includeSmartAlbums: true }) });
-    } catch {
-      // albums are optional; with limited access some devices refuse album queries
-    }
     let after: string | undefined;
     const all: MediaItem[] = [];
-    for (let page = 0; page < 200; page++) {
+    for (let page = 0; page < 400; page++) {
       const res = await ML.getAssetsAsync({
-        first: page === 0 ? 120 : 500,
+        first: page === 0 ? 150 : 1000,
         after,
         mediaType: [ML.MediaType.photo, ML.MediaType.video],
         sortBy: [[ML.SortBy.creationTime, false]],
       });
-      res.assets.forEach((a) => all.push(toItem(a)));
-      if (page === 0 || page % 4 === 0 || !res.hasNextPage) set({ items: [...all], total: res.totalCount, status: "ready" });
+      for (const a of res.assets) all.push(toItem(a));
+      // Fresh launch: show the first page now. Re-index: keep the old list until the new one is complete (no flicker).
+      if (!hadItems && (page === 0 || page % 5 === 0)) set({ items: all.slice(), total: res.totalCount, status: "ready" });
       if (!res.hasNextPage) break;
       after = res.endCursor;
     }
-    set({ items: [...all], indexedAt: Date.now(), status: "ready" });
-  } catch (e: any) {
-    set({ status: "error", error: String(e?.message || e) });
-  } finally {
-    indexing = false;
+    set({ items: all, total: all.length, indexedAt: Date.now(), status: "ready", error: undefined });
+  } catch (e) {
+    set({ status: lib.items.length ? "ready" : "error", error: errMsg(e) });
+  }
+  // Albums (Camera, WhatsApp Images/Video, Screenshots, Download, ...) after the grid, they are not needed to paint it.
+  try {
+    const albums = await ML.getAlbumsAsync({ includeSmartAlbums: true });
+    set({ albums: albums.filter((a) => a.assetCount !== 0) });
+  } catch {
+    // some devices refuse album queries with limited access; the gallery still works
   }
 }
 
 let sub: { remove: () => void } | null = null;
+let changeTimer: ReturnType<typeof setTimeout> | null = null;
 export function watchLibrary() {
   if (!deviceLibraryAvailable || sub) return;
   try {
-    sub = ML.addListener(() => indexLibrary());
+    // MediaStore fires many change events in a row (e.g. a camera burst); debounce into one re-index.
+    sub = ML.addListener(() => {
+      if (changeTimer) clearTimeout(changeTimer);
+      changeTimer = setTimeout(() => indexLibrary(true), 1200);
+    });
   } catch {
     sub = null;
   }
@@ -170,8 +207,8 @@ export function watchLibrary() {
 export async function albumAssets(albumId: string): Promise<MediaItem[]> {
   const out: MediaItem[] = [];
   let after: string | undefined;
-  for (let i = 0; i < 50; i++) {
-    const r = await ML.getAssetsAsync({ album: albumId, first: 500, after, mediaType: [ML.MediaType.photo, ML.MediaType.video], sortBy: [[ML.SortBy.creationTime, false]] });
+  for (let i = 0; i < 200; i++) {
+    const r = await ML.getAssetsAsync({ album: albumId, first: 1000, after, mediaType: [ML.MediaType.photo, ML.MediaType.video], sortBy: [[ML.SortBy.creationTime, false]] });
     r.assets.forEach((a) => out.push(toItem(a)));
     if (!r.hasNextPage) break;
     after = r.endCursor;
@@ -180,10 +217,10 @@ export async function albumAssets(albumId: string): Promise<MediaItem[]> {
 }
 
 export function allMedia(): MediaItem[] {
-  const vaultIds = new Set(getState().vault.map((v) => v.originalId).filter(Boolean));
-  const imported = getState().imported;
-  const merged = [...imported, ...lib.items].filter((m) => !vaultIds.has(m.id));
-  return merged.sort((a, b) => b.creationTime - a.creationTime);
+  const s = getState();
+  const vaultIds = new Set(s.vault.map((v) => v.originalId).filter(Boolean));
+  const merged = s.imported.length || vaultIds.size ? [...s.imported, ...lib.items].filter((m) => !vaultIds.has(m.id)) : lib.items;
+  return [...merged].sort((a, b) => captureTime(b) - captureTime(a));
 }
 
 export function useAllMedia(): MediaItem[] {
@@ -194,63 +231,101 @@ export function useAllMedia(): MediaItem[] {
 }
 
 export function findItem(id: string): MediaItem | undefined {
-  return allMedia().find((m) => m.id === id) || lib.items.find((m) => m.id === id);
+  return getState().imported.find((m) => m.id === id) || lib.items.find((m) => m.id === id);
 }
 
 export const isScreenshot = (m: MediaItem) => /screenshot|screen_shot|scrn/i.test(m.filename);
 export const isScreenRecording = (m: MediaItem) => m.mediaType === "video" && /screen.?record|scr.?rec/i.test(m.filename);
 
-// Save a local file (file:// or data:) into the device library ("RF Photos" album) or, on web, into imported media.
 export const libraryWritable = () => deviceLibraryAvailable && (lib.permission === "granted" || lib.permission === "limited");
 
-// Without MediaStore access (permission denied, or Expo Go on Android) files are kept in RF Photos' own storage.
-async function keepInAppStorage(localUri: string, filename: string): Promise<string> {
-  const dir = FS.documentDirectory + "imported/";
-  const info = await FS.getInfoAsync(dir);
-  if (!info.exists) await FS.makeDirectoryAsync(dir, { intermediates: true });
-  const ext = (filename.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
-  const dest = `${dir}${uid()}.${ext}`;
+const IMPORT_DIR = (FS.documentDirectory || "") + "imported/";
+const extOf = (name: string, fallback: string) => ((name.split(".").pop() || fallback).toLowerCase().replace(/[^a-z0-9]/g, "") || fallback).slice(0, 5);
+
+// Copy a file into RF Photos' private storage (used without gallery access, in Expo Go, and for imports).
+export async function keepInAppStorage(localUri: string, filename: string, mediaType: "photo" | "video"): Promise<string> {
+  const info = await FS.getInfoAsync(IMPORT_DIR);
+  if (!info.exists) await FS.makeDirectoryAsync(IMPORT_DIR, { intermediates: true });
+  const dest = `${IMPORT_DIR}${uid()}.${extOf(filename, mediaType === "video" ? "mp4" : "jpg")}`;
   await FS.copyAsync({ from: localUri, to: dest });
   return dest;
 }
 
-export async function saveToLibrary(localUri: string, filename: string, mediaType: "photo" | "video" = "photo", width = 0, height = 0): Promise<MediaItem> {
-  if (deviceLibraryAvailable && !libraryWritable()) {
-    const uri = await keepInAppStorage(localUri, filename);
-    const item: MediaItem = { id: "imp_" + uid(), uri, filename, mediaType, width, height, creationTime: Date.now(), modificationTime: Date.now(), duration: 0, source: "imported" };
-    setState((s) => ({ imported: [item, ...s.imported] }));
-    return item;
+// Poster frame for a video stored in app storage (gallery videos get theirs from the system).
+export async function makeVideoThumb(uri: string): Promise<string | undefined> {
+  if (Platform.OS === "web") return undefined;
+  try {
+    const r = await VideoThumbnails.getThumbnailAsync(uri, { time: 500, quality: 0.6 });
+    const dest = `${IMPORT_DIR}${uid()}_thumb.jpg`;
+    await FS.moveAsync({ from: r.uri, to: dest });
+    return dest;
+  } catch {
+    return undefined;
   }
-  if (deviceLibraryAvailable) {
-    const asset = await ML.createAssetAsync(localUri);
+}
+
+export function addImported(item: MediaItem) {
+  setState((s) => ({ imported: [item, ...s.imported.filter((i) => i.id !== item.id)] }));
+}
+
+// Save a newly created file (camera capture, edit, collage, frame...) to the gallery when allowed,
+// otherwise into RF Photos' own storage. Never throws for the fallback path.
+export async function saveToLibrary(localUri: string, filename: string, mediaType: "photo" | "video" = "photo", width = 0, height = 0, duration = 0): Promise<MediaItem> {
+  const now = Date.now();
+  if (libraryWritable()) {
     try {
-      const album = await ML.getAlbumAsync("RF Photos");
-      if (album) await ML.addAssetsToAlbumAsync([asset], album, false);
-      else await ML.createAlbumAsync("RF Photos", asset, false);
+      const asset = await ML.createAssetAsync(localUri);
+      try {
+        const album = await ML.getAlbumAsync("RF Photos");
+        if (album) await ML.addAssetsToAlbumAsync([asset], album, false);
+        else await ML.createAlbumAsync("RF Photos", asset, false);
+      } catch {
+        // album assignment is best-effort; the asset is already saved
+      }
+      const item = toItem(asset);
+      if (!item.creationTime) item.creationTime = now;
+      set({ items: [item, ...lib.items.filter((i) => i.id !== item.id)] });
+      return item;
     } catch {
-      // album assignment is best-effort; asset is already saved
+      // fall through to app storage (e.g. limited access refused the write)
     }
-    const item = toItem(asset);
-    set({ items: [item, ...lib.items.filter((i) => i.id !== item.id)] });
+  }
+  if (Platform.OS !== "web") {
+    const uri = await keepInAppStorage(localUri, filename, mediaType);
+    const thumb = mediaType === "video" ? await makeVideoThumb(uri) : undefined;
+    const item: MediaItem = { id: "imp_" + uid(), uri, thumb, filename, mediaType, width, height, creationTime: now, modificationTime: now, duration, source: "imported" };
+    addImported(item);
     return item;
   }
-  const item: MediaItem = { id: "imp_" + uid(), uri: localUri, filename, mediaType, width, height, creationTime: Date.now(), modificationTime: Date.now(), duration: 0, source: "imported" };
-  setState((s) => ({ imported: [item, ...s.imported] }));
+  const item: MediaItem = { id: "imp_" + uid(), uri: localUri, filename, mediaType, width, height, creationTime: now, modificationTime: now, duration, source: "imported", session: localUri.length > 900_000 };
+  addImported(item);
   return item;
 }
 
+// Returns false when the user cancels the system delete confirmation.
 export async function deleteMedia(items: MediaItem[]): Promise<boolean> {
   const dev = items.filter((i) => i.source === "device");
-  const imp = new Set(items.filter((i) => i.source === "imported").map((i) => i.id));
+  const imp = items.filter((i) => i.source === "imported");
   if (dev.length) {
-    const ok = await ML.deleteAssetsAsync(dev.map((d) => d.id));
+    let ok = false;
+    try {
+      ok = await ML.deleteAssetsAsync(dev.map((d) => d.id));
+    } catch (e) {
+      if (/cancel|denied|reject/i.test(errMsg(e))) return false;
+      throw new Error(`Android refused to delete: ${errMsg(e)}`);
+    }
     if (!ok) return false;
     const gone = new Set(dev.map((d) => d.id));
-    set({ items: lib.items.filter((i) => !gone.has(i.id)) });
+    set({ items: lib.items.filter((i) => !gone.has(i.id)), total: Math.max(0, lib.total - gone.size) });
   }
-  if (imp.size) {
-    if (deviceLibraryAvailable) for (const i of items) if (imp.has(i.id) && i.uri.startsWith(FS.documentDirectory || "~")) await FS.deleteAsync(i.uri, { idempotent: true });
-    setState((s) => ({ imported: s.imported.filter((i) => !imp.has(i.id)) }));
+  if (imp.length) {
+    if (Platform.OS !== "web") {
+      for (const i of imp) {
+        for (const u of [i.uri, i.thumb]) if (u && u.startsWith(FS.documentDirectory || "~")) await FS.deleteAsync(u, { idempotent: true }).catch(() => {});
+      }
+    }
+    const ids = new Set(imp.map((i) => i.id));
+    setState((s) => ({ imported: s.imported.filter((i) => !ids.has(i.id)) }));
   }
   return true;
 }
@@ -266,24 +341,25 @@ export async function assetInfo(id: string) {
 
 export async function createAlbum(name: string, items: MediaItem[], copy = true) {
   const dev = items.filter((i) => i.source === "device");
-  if (!dev.length) throw new Error("Albums need at least one device photo or video");
+  if (!deviceLibraryAvailable || !libraryWritable()) throw new Error("Device albums need access to your photos and videos");
+  if (!dev.length) throw new Error("Albums can only contain photos and videos from your gallery");
   const album = await ML.createAlbumAsync(name, dev[0].id, copy);
   if (dev.length > 1) await ML.addAssetsToAlbumAsync(dev.slice(1).map((d) => d.id), album, copy);
-  await indexLibrary();
+  indexLibrary(true);
   return album;
 }
 
 export async function addToAlbum(albumId: string, items: MediaItem[], copy = true) {
   const dev = items.filter((i) => i.source === "device");
-  if (!dev.length) throw new Error("Only device media can be added to device albums");
+  if (!dev.length) throw new Error("Only gallery photos and videos can be added to device albums");
   const ok = await ML.addAssetsToAlbumAsync(dev.map((d) => d.id), albumId, copy);
-  await indexLibrary();
+  indexLibrary(true);
   return ok;
 }
 
 export async function deleteAlbum(albumId: string) {
   const ok = await ML.deleteAlbumsAsync([albumId], false);
-  await indexLibrary();
+  indexLibrary(true);
   return ok;
 }
 

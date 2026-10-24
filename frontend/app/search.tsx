@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { FlatList, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { MediaGrid, openViewer } from "@/src/components/MediaGrid";
+import { MediaGrid } from "@/src/components/MediaGrid";
 import { Chip, ChipRow, Glass, IconButton, Ionicons, Press, Screen, Body, EmptyState } from "@/src/components/ui";
 import { useFeedback } from "@/src/components/feedback";
 import { useAllMedia } from "@/src/media/library";
@@ -22,6 +22,7 @@ export default function Search() {
   const meta = useStore((s) => s.meta);
   const [q, setQ] = useState("");
   const results = useMemo(() => searchMedia(all, q), [all, q, meta]); // eslint-disable-line react-hooks/exhaustive-deps
+  const resultItems = useMemo(() => results.map((r) => r.item), [results]);
   const docs = useMemo(() => searchDocuments(q), [q]);
   const parsed = q.trim() ? describeQuery(q) : null;
 
@@ -88,7 +89,7 @@ export default function Search() {
           )}
         />
       ) : (
-        <MediaGrid testID="search-results-grid" items={results.map((r) => r.item)} header={header} onPressItem={(m, i) => openViewer(results.map((r) => r.item), i)} empty={<EmptyState testID="search-empty" icon="search-outline" title="No matches" message="Nothing in your local index matches. Add tags, captions or notes in the photo viewer to make media findable." />} />
+        <MediaGrid testID="search-results-grid" items={resultItems} header={header} empty={<EmptyState testID="search-empty" icon="search-outline" title="No matches" message="Nothing in your local index matches. Add tags, captions or notes in the photo viewer to make media findable." />} />
       )}
     </Screen>
   );

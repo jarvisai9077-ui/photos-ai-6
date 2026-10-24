@@ -6,7 +6,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Header, Ionicons, IconName, Press, Screen, SectionTitle, Body } from "@/src/components/ui";
 import { useFeedback } from "@/src/components/feedback";
-import { deviceLibraryAvailable, isScreenshot, useAllMedia, useLibrary } from "@/src/media/library";
+import { deviceLibraryAvailable, expoGoAndroid, isScreenshot, useAllMedia, useLibrary } from "@/src/media/library";
 import { duplicateCandidates } from "@/src/media/analysis";
 import { setState, uid, useStore } from "@/src/store";
 import { usesNativeTabs } from "@/src/navigation";
@@ -20,6 +20,7 @@ export default function Albums() {
   const { width } = useWindowDimensions();
   const all = useAllMedia();
   const albums = useLibrary((s) => s.albums);
+  const permission = useLibrary((s) => s.permission);
   const meta = useStore((s) => s.meta);
   const smart = useStore((s) => s.smartAlbums);
   const vaultCount = useStore((s) => s.vault.length);
@@ -30,16 +31,22 @@ export default function Albums() {
     videos: all.filter((m) => m.mediaType === "video").length,
     shots: all.filter(isScreenshot).length,
     archive: all.filter((m) => meta[m.id]?.archived).length,
-    dups: duplicateCandidates(all).length,
     imported: all.filter((m) => m.source === "imported").length,
   }), [all, meta]);
+  // Duplicate detection only depends on the media list, not on favourites/tags.
+  const dupCount = useMemo(() => duplicateCandidates(all).length, [all]);
+  const covers = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const it of all) if (it.albumId && !m.has(it.albumId)) m.set(it.albumId, it.thumb || it.uri);
+    return m;
+  }, [all]);
 
-  const coverFor = (albumId: string) => all.find((m) => m.albumId === albumId)?.uri;
+  const coverFor = (albumId: string) => covers.get(albumId);
   const smartCards: { key: string; title: string; count: string; icon: IconName; tint: keyof ThemeColors }[] = [
     { key: "favourites", title: "Favourites", count: `${counts.fav}`, icon: "heart", tint: "pastelBlushPink" },
     { key: "videos", title: "Videos", count: `${counts.videos}`, icon: "videocam", tint: "pastelPowderBlue" },
     { key: "screenshots", title: "Screenshots", count: `${counts.shots}`, icon: "phone-portrait", tint: "pastelLavender" },
-    { key: "duplicates", title: "Duplicate review", count: `${counts.dups} groups`, icon: "copy", tint: "pastelPeach" },
+    { key: "duplicates", title: "Duplicate review", count: `${dupCount} groups`, icon: "copy", tint: "pastelPeach" },
     { key: "large", title: "Large videos", count: "≥ 60 s", icon: "film", tint: "pastelMint" },
     { key: "archive", title: "Archive", count: `${counts.archive}`, icon: "archive", tint: "pastelCream" },
     { key: "imported", title: "Recently imported", count: `${counts.imported}`, icon: "download", tint: "pastelPowderBlue" },
@@ -93,7 +100,9 @@ export default function Albums() {
 
         <SectionTitle title="Device albums" />
         {!deviceLibraryAvailable ? (
-          <Body muted style={{ paddingHorizontal: spacing.lg }}>Folders like Camera, Screenshots and Downloads are read from Android MediaStore on your device.</Body>
+          <Body muted style={{ paddingHorizontal: spacing.lg }}>{expoGoAndroid ? "Phone folders (Camera, WhatsApp, Screenshots, Downloads) appear in the installed RF Photos app. In this preview, use Recently imported." : "Folders like Camera, WhatsApp, Screenshots and Downloads are read from your phone's gallery."}</Body>
+        ) : permission === "denied" || permission === "undetermined" ? (
+          <Body muted style={{ paddingHorizontal: spacing.lg }}>Allow photo access on the Photos tab to see your phone&apos;s folders here.</Body>
         ) : albums.length === 0 ? (
           <Body muted style={{ paddingHorizontal: spacing.lg }}>No albums found yet.</Body>
         ) : (

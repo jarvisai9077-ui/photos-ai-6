@@ -57,6 +57,7 @@ export default function Camera() {
         <Text style={st.permMsg}>RF Photos uses the camera to capture photos, videos and document scans. Captures are saved only on this device.</Text>
         {cam.canAskAgain ? <Button testID="camera-allow-button" label="Allow camera" onPress={requestCam} style={{ marginTop: spacing.xl }} /> : <Button testID="camera-settings-button" label="Open Settings" onPress={() => Linking.openSettings()} style={{ marginTop: spacing.xl }} />}
         <Button testID="camera-close-button" label="Not now" variant="ghost" onPress={() => router.back()} style={{ marginTop: spacing.md }} />
+        <Press testID="camera-privacy-link" onPress={() => router.push("/legal/privacy-policy")} style={{ marginTop: spacing.lg, minHeight: 44, justifyContent: "center" }}><Text style={{ color: "#FF8A3D", fontWeight: "600" }}>Privacy Policy</Text></Press>
       </View>
     );
   }

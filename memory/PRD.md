@@ -19,3 +19,14 @@ Testing: iteration_1 (2 crashes fixed), iteration_2 all 10 flows pass (web).
 - P0: Native-build modules: OCR (ML Kit), video editing (Media3/FFmpeg), AR face mesh, encryption at rest, ML models (classification, faces, background removal)
 - P1: Curves/HSL/LUT shaders, layers & masks, free-form crop/perspective, relationship graph, infinite canvas, photo book layout, conflict resolver UI
 - P2: Client proofing, family timeline, live sessions, lens/template packs, private profiles, 3D reconstruction
+
+## Iteration 3 (2026-10-24)
+- Fixed picker "Select 1" (unmount cleanup resolved [] early; max=1 now replaces choice), selection (long-press, select all/deselect/clear, per-day), share (Android copies to cache first; sequential multi-share), delete (handles system-dialog cancel).
+- Import: system photo picker / file browser → app storage, dedupe vs gallery, EXIF capture date (web JPEG EXIF reader), video posters. Expo Go Android → import mode (no MediaStore access possible); installed build → full MediaStore index (granular perms, limited-access banner + manage, Settings deep link).
+- Video viewer: no Pressable wrapper, autoplay, textureView, playable-URI resolve, error fallback (Try again / Open with).
+- Offline memory slideshows (/slideshow): monthly memories, events, selection, collections, Create tool; fade/slide/zoom, Ken Burns, inline video, save/replay. Not exported as a video file (user choice).
+- Date-grouped FlashList grid everywhere (Today/Yesterday/d MMMM yyyy).
+- Privacy Policy & Terms (/legal/*), support jarvisai9077@gmail.com; links in Settings, Privacy Center, permission + camera screens.
+- New RF logo (scripts/make-logo.py → icon, adaptive, splash, favicon); app id com.rfalphabet.rfphotos; Emergent refs removed.
+## Backlog
+- Real MP4 export of slideshows (needs native encoder), background music, multi-file share in one sheet (needs native share module).

@@ -14,6 +14,7 @@ const TOOLS: { id: string; title: string; sub: string; icon: IconName; route: st
   { id: "collage", title: "Collage & Posters", sub: "Templates, text, export", icon: "grid", route: "/collage", tint: "pastelLavender" },
   { id: "scanner", title: "Document Studio", sub: "Scan pages → PDF", icon: "document-text", route: "/documents", tint: "pastelMint" },
   { id: "moments", title: "Best Moments", sub: "Frames from videos", icon: "film", route: "/moments", tint: "pastelPowderBlue" },
+  { id: "slideshow", title: "Memory Slideshow", sub: "Photos & videos with transitions", icon: "play-circle", route: "/slideshow?fresh=1", tint: "pastelMint" },
   { id: "camera", title: "Camera", sub: "Photo, video, recipes", icon: "camera", route: "/camera", tint: "pastelBlushPink" },
   { id: "batch", title: "Batch Pipeline", sub: "Resize, convert, export", icon: "construct", route: "/automation", tint: "pastelCream" },
   { id: "compare", title: "Before / After Lab", sub: "Compare versions", icon: "git-compare", route: "/timemachine", tint: "pastelPeach" },

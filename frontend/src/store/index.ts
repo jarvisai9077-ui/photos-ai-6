@@ -15,7 +15,10 @@ export type MediaItem = {
   duration: number;
   albumId?: string;
   source: "device" | "imported";
+  thumb?: string; // poster frame for imported videos
+  session?: boolean; // web preview only: large files kept in memory, not persisted
 };
+export type Slideshow = { id: string; title: string; itemIds: string[]; transition: "fade" | "slide" | "zoom"; seconds: number; created: number };
 export type AssetMeta = { fav?: boolean; tags?: string[]; caption?: string; note?: string; archived?: boolean; rating?: number; approval?: "approved" | "rejected" | "pending" };
 export type Version = { id: string; sourceId: string; sourceName: string; outputId?: string; outputUri: string; ops: string[]; time: number };
 export type ProvEvent = { id: string; assetId: string; kind: "import" | "edit" | "export" | "vault" | "metadata" | "restore"; detail: string; time: number };
@@ -64,6 +67,7 @@ export type State = {
   annotations: Annotation[];
   shots: ShotPlan[];
   lensFavs: string[];
+  slideshows: Slideshow[];
   prefs: Prefs;
 };
 
@@ -90,6 +94,7 @@ const initial: State = {
   annotations: [],
   shots: [],
   lensFavs: [],
+  slideshows: [],
   prefs: {
     theme: "system",
     reducedMotion: false,
@@ -112,6 +117,9 @@ function migrate(raw: any): State {
   // Versioned migration: merge unknown/missing keys onto defaults without dropping user data.
   const s = { ...initial, ...(raw || {}) } as State;
   s.prefs = { ...initial.prefs, ...(raw?.prefs || {}) };
+  for (const k of Object.keys(initial) as (keyof State)[]) {
+    if (Array.isArray(initial[k]) && !Array.isArray(s[k])) (s as any)[k] = [];
+  }
   s.schema = SCHEMA;
   return s;
 }
@@ -139,8 +147,20 @@ export function getState() {
 export function setState(fn: (s: State) => Partial<State>) {
   state = { ...state, ...fn(state) };
   listeners.forEach((l) => l());
+  if (!hydrated) return; // never overwrite the saved database with defaults before it has loaded
   if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => storage.setItem(KEY, JSON.stringify(state)), 250);
+  saveTimer = setTimeout(persist, 500);
+}
+
+function persist() {
+  saveTimer = null;
+  try {
+    // Session-only items (large web-preview files) are never written to disk.
+    const out = state.imported.some((i) => i.session) ? { ...state, imported: state.imported.filter((i) => !i.session) } : state;
+    storage.setItem(KEY, JSON.stringify(out));
+  } catch {
+    // serialisation failure must never crash the app; the next change retries
+  }
 }
 
 export function replaceState(next: State) {

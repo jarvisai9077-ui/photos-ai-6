@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { FlatList, Text, useWindowDimensions, View, ScrollView, TextInput } from "react-native";
+import { ActivityIndicator, FlatList, Text, useWindowDimensions, View, ScrollView, TextInput } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Image } from "expo-image";
 import { useVideoPlayer, VideoView } from "expo-video";
-import * as Sharing from "expo-sharing";
+import { useEvent } from "expo";
+import { shareOne } from "@/src/media/share";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -51,10 +52,44 @@ function ZoomableImage({ uri, w, h, onZoomChange }: { uri: string; w: number; h:
   );
 }
 
-function VideoPage({ uri, w, h, active }: { uri: string; w: number; h: number; active: boolean }) {
-  const player = useVideoPlayer(uri, (p) => { p.loop = false; });
-  useEffect(() => { if (!active) player.pause(); }, [active, player]);
-  return <VideoView testID="viewer-video" player={player} style={{ width: w, height: h }} contentFit="contain" nativeControls allowsPictureInPicture={false} />;
+// Video playback. Root causes of "videos don't play": (1) the VideoView sat inside a Pressable inside a paging
+// list, so taps went to the wrapper and our bottom bar covered the native controls; (2) Android's default
+// SurfaceView renders black inside scrolling lists; (3) iOS ph:// ids and missing error handling.
+function VideoPage({ item, w, h, active, onShare }: { item: MediaItem; w: number; h: number; active: boolean; onShare: () => void }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let on = true;
+    setSrc(null);
+    localUriFor(item.id, item.uri).then((u) => on && setSrc(u)).catch(() => on && setSrc(item.uri));
+    return () => { on = false; };
+  }, [item.id, item.uri, attempt]);
+  const player = useVideoPlayer(src ? { uri: src } : null, (p) => { p.loop = false; });
+  const { status, error } = useEvent(player, "statusChange", { status: player.status, error: undefined as any });
+  useEffect(() => {
+    if (!src) return;
+    try { if (active) player.play(); else player.pause(); } catch { /* released */ }
+  }, [active, src, player]);
+  if (status === "error") {
+    return (
+      <View testID="viewer-video-error" style={{ width: w, height: h, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.md }}>
+        {!!item.thumb && <Image source={{ uri: item.thumb }} style={{ width: w * 0.6, height: w * 0.4, borderRadius: 12, opacity: 0.5 }} contentFit="cover" />}
+        <Ionicons name="alert-circle-outline" size={40} color="#FFFFFF" />
+        <Text style={{ color: "#FFFFFF", fontSize: 17, fontWeight: "700", textAlign: "center" }}>This video can&apos;t be played here</Text>
+        <Text style={{ color: "rgba(255,255,255,0.75)", textAlign: "center" }}>{error?.message ? `The phone's video decoder reported: ${error.message}` : "The format or codec isn't supported by this phone."} You can open it in another app.</Text>
+        <View style={{ flexDirection: "row", gap: spacing.sm }}>
+          <Button testID="viewer-video-retry" label="Try again" variant="ghost" onPress={() => setAttempt((a) => a + 1)} />
+          <Button testID="viewer-video-open-with" label="Open with…" icon="open-outline" onPress={onShare} />
+        </View>
+      </View>
+    );
+  }
+  return (
+    <View style={{ width: w, height: h, alignItems: "center", justifyContent: "center" }}>
+      {src ? <VideoView testID="viewer-video" player={player} style={{ width: w, height: h }} contentFit="contain" nativeControls surfaceType="textureView" allowsPictureInPicture={false} /> : null}
+      {(!src || status === "loading") && <ActivityIndicator color="#FFFFFF" style={{ position: "absolute" }} />}
+    </View>
+  );
 }
 
 export default function Viewer() {
@@ -76,6 +111,7 @@ export default function Viewer() {
   const [tags, setTags] = useState("");
   const [caption, setCaption] = useState("");
   const listRef = useRef<FlatList<MediaItem>>(null);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     setNote(m.note || ""); setTags((m.tags || []).join(", ")); setCaption(m.caption || "");
@@ -91,12 +127,21 @@ export default function Viewer() {
   }
 
   const share = async () => {
-    if (!(await Sharing.isAvailableAsync())) return fb.toast("Sharing isn't available here", "error");
-    await Sharing.shareAsync(await localUriFor(cur.id, cur.uri));
+    try {
+      const r = await shareOne(cur);
+      if (r === "downloaded") fb.toast("Downloaded", "success");
+    } catch (e: any) { fb.toast(e?.message || "Couldn't share this item", "error"); }
   };
   const del = async () => {
-    if (!(await fb.confirm({ title: "Delete this item?", message: "It will be removed from your device. Android may ask you to confirm.", destructive: true, confirmLabel: "Delete" }))) return;
-    try { if (await deleteMedia([cur])) { fb.toast("Deleted", "success"); router.back(); } } catch (e: any) { fb.toast(e?.message || "Delete failed", "error"); }
+    if (!(await fb.confirm({ title: "Delete this item?", message: cur.source === "imported" ? "It will be removed from RF Photos' storage." : "It will be removed from your device. Android may ask you to confirm.", destructive: true, confirmLabel: "Delete" }))) return;
+    try {
+      if (await deleteMedia([cur])) {
+        fb.toast("Deleted", "success");
+        list.splice(i, 1);
+        if (!list.length) router.back();
+        else { setI((x) => Math.min(x, list.length - 1)); setTick((t) => t + 1); }
+      } else fb.toast("Deletion was cancelled", "info");
+    } catch (e: any) { fb.toast(e?.message || "Delete failed", "error"); }
   };
   const saveDetails = () => {
     updateMeta([cur.id], { note: note.trim(), caption: caption.trim(), tags: tags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean) });
@@ -127,6 +172,7 @@ export default function Viewer() {
       <FlatList
         ref={listRef}
         data={list}
+        extraData={tick}
         horizontal
         pagingEnabled
         scrollEnabled={!zoomed}
@@ -136,11 +182,22 @@ export default function Viewer() {
         showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={(e) => setI(Math.round(e.nativeEvent.contentOffset.x / width))}
         windowSize={3}
-        renderItem={({ item, index: idx }) => (
-          <Press testID={`viewer-page-${idx}`} haptic={false} onPress={() => setChrome((c) => !c)} style={{ width, height, alignItems: "center", justifyContent: "center" }}>
-            {item.mediaType === "video" ? (Math.abs(idx - i) === 0 ? <VideoPage uri={item.uri} w={width} h={height * 0.8} active={idx === i} /> : <Image source={{ uri: item.uri }} style={{ width, height }} contentFit="contain" />) : <ZoomableImage uri={item.uri} w={width} h={height} onZoomChange={setZoomed} />}
-          </Press>
-        )}
+        renderItem={({ item, index: idx }) =>
+          item.mediaType === "video" ? (
+            // Video page sits between the top and bottom bars so the native controls are never covered.
+            <View testID={`viewer-page-${idx}`} style={{ width, height, paddingTop: insets.top + 64, paddingBottom: insets.bottom + 150 }}>
+              {idx === i ? (
+                <VideoPage item={item} w={width} h={height - insets.top - 64 - insets.bottom - 150} active onShare={share} />
+              ) : (
+                <Image source={{ uri: item.thumb || item.uri }} style={{ flex: 1 }} contentFit="contain" />
+              )}
+            </View>
+          ) : (
+            <Press testID={`viewer-page-${idx}`} haptic={false} onPress={() => setChrome((c) => !c)} style={{ width, height, alignItems: "center", justifyContent: "center" }}>
+              <ZoomableImage uri={item.uri} w={width} h={height} onZoomChange={setZoomed} />
+            </Press>
+          )
+        }
       />
       {chrome && (
         <>

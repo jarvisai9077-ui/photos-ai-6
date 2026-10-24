@@ -27,7 +27,11 @@ export default function Privacy() {
         <Card testID="privacy-network-audit">
           <Text style={st.h}>Network audit</Text>
           <Badge label="0 network calls in RF Photos code" kind="success" />
-          <Body muted style={{ marginTop: spacing.sm }}>This build contains no analytics, telemetry, cloud SDKs, remote AI or upload code. Search, editing, backup and the Action Agent all run locally and work in Airplane Mode. (Developer note: the project template still ships an unused backend folder which the app never calls.)</Body>
+          <Body muted style={{ marginTop: spacing.sm }}>RF Photos contains no analytics, telemetry, advertising, cloud SDKs, remote AI or upload code. Search, editing, memories, slideshows, backup and the Action Agent all run locally and work in Airplane Mode.</Body>
+        </Card>
+        <Card style={{ paddingVertical: spacing.xs }}>
+          <Row testID="privacy-policy-link" icon="document-lock-outline" title="Privacy Policy" onPress={() => router.push("/legal/privacy-policy")} />
+          <Row testID="privacy-terms-link" icon="reader-outline" title="Terms & Conditions" onPress={() => router.push("/legal/terms")} />
         </Card>
         <SectionTitle title="Local processing" />
         <Card style={{ paddingVertical: spacing.xs }}>

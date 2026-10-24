@@ -1,6 +1,9 @@
 import React from "react";
-import { ScrollView } from "react-native";
+import { Linking, ScrollView, View } from "react-native";
 import { router } from "expo-router";
+import { Image } from "expo-image";
+import Constants from "expo-constants";
+import { SUPPORT_EMAIL } from "@/src/components/LegalDoc";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Card, Chip, ChipRow, Header, Row, Screen, SectionTitle, ToggleRow, Body } from "@/src/components/ui";
 import { setState, useStore } from "@/src/store";
@@ -35,7 +38,16 @@ export default function Settings() {
           <Row testID="settings-brand" icon="color-palette-outline" title="Brand Kit" onPress={() => router.push("/brand")} />
           <Row testID="settings-status" icon="checkmark-done-outline" title="Feature Status Report" onPress={() => router.push("/status")} />
         </Card>
-        <Body muted style={{ padding: spacing.lg }}>RF Photos by RF Alphabet · v1.0 · 100% offline, local-first.</Body>
+        <SectionTitle title="Legal & support" />
+        <Card style={{ marginHorizontal: spacing.lg, paddingVertical: spacing.xs }}>
+          <Row testID="settings-privacy-policy" icon="document-lock-outline" title="Privacy Policy" subtitle="What RF Photos accesses and stores" onPress={() => router.push("/legal/privacy-policy")} />
+          <Row testID="settings-terms" icon="reader-outline" title="Terms & Conditions" subtitle="Rules, limits and your rights" onPress={() => router.push("/legal/terms")} />
+          <Row testID="settings-support" icon="mail-outline" title="Contact support" subtitle={SUPPORT_EMAIL} onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=RF%20Photos%20support`).catch(() => {})} />
+        </Card>
+        <View style={{ alignItems: "center", padding: spacing.xl, gap: spacing.sm }}>
+          <Image source={require("@/assets/images/logo.png")} style={{ width: 56, height: 56, borderRadius: 14 }} contentFit="contain" accessibilityLabel="RF Photos logo" />
+          <Body muted style={{ textAlign: "center" }}>RF Photos by RF Alphabet · v{Constants.expoConfig?.version || "1.0.0"}{"\n"}Works offline · your media stays on this device</Body>
+        </View>
       </ScrollView>
     </Screen>
   );

@@ -7,7 +7,9 @@ import { SelectionBar } from "@/src/components/SelectionBar";
 import { useFeedback } from "@/src/components/feedback";
 import { Button, EmptyState, Header, IconButton, Screen, Body } from "@/src/components/ui";
 import { Image } from "expo-image";
-import { albumAssets, deleteAlbum, isScreenshot, useAllMedia } from "@/src/media/library";
+import { albumAssets, deleteAlbum, isScreenshot, useAllMedia, useLibrary } from "@/src/media/library";
+import { useSelection } from "@/src/components/useSelection";
+import { playSlideshow } from "@/src/media/slideshow";
 import { duplicateCandidates } from "@/src/media/analysis";
 import { searchMedia } from "@/src/media/search";
 import { MediaItem, setState, updateMeta, useStore } from "@/src/store";
@@ -23,14 +25,18 @@ export default function Collection() {
   const meta = useStore((s) => s.meta);
   const smart = useStore((s) => s.smartAlbums);
   const [albumItems, setAlbumItems] = useState<MediaItem[] | null>(null);
-  const [selecting, setSelecting] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [albumError, setAlbumError] = useState<string | null>(null);
   const albumId = key?.startsWith("album:") ? key.slice(6) : null;
   const rule = key?.startsWith("smart:") ? smart.find((s) => s.id === key.slice(6)) : undefined;
+  const libItems = useLibrary((s) => s.items);
 
+  // Album contents are re-read whenever the gallery index changes (deletes, new captures).
   useEffect(() => {
-    if (albumId) albumAssets(albumId).then(setAlbumItems).catch(() => setAlbumItems([]));
-  }, [albumId]);
+    if (!albumId) return;
+    let on = true;
+    albumAssets(albumId).then((r) => on && (setAlbumItems(r), setAlbumError(null))).catch((e) => on && (setAlbumItems([]), setAlbumError(String(e?.message || e))));
+    return () => { on = false; };
+  }, [albumId, libItems]);
 
   const { title, items } = useMemo(() => {
     const live = all.filter((m) => !meta[m.id]?.archived);
@@ -50,8 +56,8 @@ export default function Collection() {
   }, [key, all, meta, albumItems, albumId, rule, titleParam]);
 
   const dups = useMemo(() => (key === "duplicates" ? duplicateCandidates(all) : []), [key, all]);
-  const toggle = (m: MediaItem) => setSelected((s) => { const n = new Set(s); n.has(m.id) ? n.delete(m.id) : n.add(m.id); return n; });
-  const end = () => { setSelecting(false); setSelected(new Set()); };
+  const sel = useSelection(items);
+  const { selecting, selected, end } = sel;
 
   const right = (
     <View style={{ flexDirection: "row" }}>
@@ -59,7 +65,8 @@ export default function Collection() {
       {rule && <IconButton testID="collection-pause-rule-button" name={rule.paused ? "play-outline" : "pause-outline"} label="Pause rule" onPress={() => setState((s) => ({ smartAlbums: s.smartAlbums.map((r) => (r.id === rule.id ? { ...r, paused: !r.paused } : r)) }))} />}
       {rule && <IconButton testID="collection-delete-rule-button" name="trash-outline" label="Delete rule" onPress={async () => { if (await fb.confirm({ title: "Delete smart album?", message: "Only the rule is deleted. No photos are touched.", destructive: true, confirmLabel: "Delete rule" })) { setState((s) => ({ smartAlbums: s.smartAlbums.filter((r) => r.id !== rule.id) })); router.back(); } }} />}
       {albumId && <IconButton testID="collection-delete-album-button" name="trash-outline" label="Delete album" onPress={async () => { if (await fb.confirm({ title: "Delete album?", message: "Removes the album. Media stays on your device.", destructive: true, confirmLabel: "Delete album" })) { try { await deleteAlbum(albumId); router.back(); } catch (e: any) { fb.toast(e?.message || "Failed", "error"); } } }} />}
-      {key !== "duplicates" && <IconButton testID="collection-select-button" name={selecting ? "close" : "checkmark-circle-outline"} onPress={() => (selecting ? end() : setSelecting(true))} />}
+      {key !== "duplicates" && items.length > 1 && <IconButton testID="collection-slideshow-button" name="play-circle-outline" label="Play slideshow" onPress={() => playSlideshow(title, items)} />}
+      {key !== "duplicates" && <IconButton testID="collection-select-button" name={selecting ? "close" : "checkmark-circle-outline"} label="Select" onPress={() => (selecting ? end() : sel.start())} />}
     </View>
   );
 
@@ -97,9 +104,9 @@ export default function Collection() {
       {albumId && albumItems === null ? (
         <ActivityIndicator color={colors.brandPrimary} style={{ marginTop: spacing.xxl }} />
       ) : (
-        <MediaGrid testID="collection-grid" items={items} selecting={selecting} selected={selected} onToggle={toggle} onPressItem={(m, i) => openViewer(items, i)} bottomPad={(selecting ? 150 : 24) + insets.bottom} empty={<EmptyState testID="collection-empty" icon="images-outline" title="Nothing here yet" message={rule?.paused ? "This rule is paused." : "Items that match will appear automatically."} />} />
+        <MediaGrid testID="collection-grid" items={items} grouped={key !== "large"} selecting={selecting} selected={selected} onToggle={sel.toggle} onToggleMany={sel.toggleMany} onLongPress={(m) => (selecting ? sel.toggle(m) : sel.start(m))} bottomPad={(selecting ? 170 : 24) + insets.bottom} empty={<EmptyState testID="collection-empty" icon="images-outline" title={albumError ? "Couldn't open this album" : "Nothing here yet"} message={albumError || (rule?.paused ? "This rule is paused." : "Items that match will appear automatically.")} />} />
       )}
-      {selecting && <SelectionBar items={items.filter((m) => selected.has(m.id))} onDone={end} bottom={0} />}
+      {selecting && <SelectionBar items={sel.items} total={items.length} onDone={end} onSelectAll={sel.selectAll} onClear={sel.clear} bottom={0} />}
     </Screen>
   );
 }

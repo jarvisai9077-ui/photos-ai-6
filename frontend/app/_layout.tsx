@@ -12,7 +12,7 @@ import { FeedbackProvider } from "@/src/components/feedback";
 import { queryClient } from "@/src/query-client";
 import { hydrate, useStore } from "@/src/store";
 import { setColorScheme, useTheme } from "@/src/theme";
-import { indexLibrary, watchLibrary } from "@/src/media/library";
+import { indexLibrary, watchAppState, watchLibrary } from "@/src/media/library";
 
 LogBox.ignoreAllLogs(true);
 
@@ -20,10 +20,13 @@ export default function RootLayout() {
   const theme = useStore((s) => s.prefs.theme);
   const { colors, scheme } = useTheme();
   useEffect(() => {
-    hydrate().then(() => {
-      indexLibrary();
-      watchLibrary();
-    });
+    hydrate()
+      .catch(() => {})
+      .finally(() => {
+        indexLibrary();
+        watchLibrary();
+        watchAppState();
+      });
   }, []);
   useEffect(() => {
     setColorScheme(theme === "system" ? null : theme);
@@ -40,6 +43,7 @@ export default function RootLayout() {
                 <Stack.Screen name="viewer" options={{ animation: "fade", contentStyle: { backgroundColor: "#000000" } }} />
                 <Stack.Screen name="camera" options={{ animation: "slide_from_bottom", contentStyle: { backgroundColor: "#000000" } }} />
                 <Stack.Screen name="picker" options={{ animation: "slide_from_bottom" }} />
+                <Stack.Screen name="slideshow" options={{ animation: "fade", contentStyle: { backgroundColor: "#000000" } }} />
               </Stack>
             </FeedbackProvider>
           </KeyboardProvider>

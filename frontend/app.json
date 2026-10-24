@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.rfgalleryai.xfv6mw",
+      "bundleIdentifier": "com.rfalphabet.rfphotos",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Browse and organise your photos privately",
         "NSPhotoLibraryAddUsageDescription": "Save your edits and captures to Photos",
@@ -23,8 +23,9 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#FF5E00"
       },
-      "package": "com.emergent.rfgalleryai.xfv6mw",
+      "package": "com.rfalphabet.rfphotos",
       "permissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO",
         "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
@@ -38,7 +39,10 @@
     "web": {
       "bundler": "metro",
       "output": "single",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "name": "RF Photos",
+      "shortName": "RF Photos",
+      "themeColor": "#FF5E00"
     },
     "plugins": [
       "expo-router",
